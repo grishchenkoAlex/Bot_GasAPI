@@ -1,0 +1,23 @@
+{
+  "name": "bot_gasapi",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@truffle/contract": "^4.6.31",
+    "axios": "^1.6.8",
+    "canvas": "^2.11.2",
+    "chart.js": "^3.5.1",
+    "chartjs-node-canvas": "^4.1.6",
+    "dotenv": "^16.4.5",
+    "ganache-core": "^2.13.2",
+    "node-telegram-bot-api": "^0.65.1",
+    "solc": "^0.8.25"
+  }
+}

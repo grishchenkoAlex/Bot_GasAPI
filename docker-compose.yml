@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    volumes:
+      - ./src:/usr/src/app/src
+    environment:
+      - TELEGRAM_TOKEN=<your_telegram_token>
+    networks:
+      - telegram_net
+
+networks:
+  telegram_net:
+    driver: bridge
+
+    
