@@ -1,20 +1,22 @@
-# Базовый образ
-FROM node:16-alpine
+# Используйте официальный образ Node.js с нужной версией
+FROM node:18-buster
 
-# Установка рабочей директории в контейнере
+# Установка Python, node-gyp и apt-utils одной командой
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip apt-utils && \
+    npm install -g node-gyp npm@10.6.0
+
+# Установите рабочую директорию в контейнере
 WORKDIR /usr/src/app
 
-# Копирование файлов package.json и package-lock.json
+# Сначала копируйте файлы package.json и package-lock.json
 COPY package*.json ./
 
-# Установка зависимостей
-RUN npm install
+# Установите зависимости проекта
+RUN npm cache clean --force && npm install
 
-# Копирование всех файлов проекта в рабочую директорию
+# Теперь копируйте остальные файлы проекта
 COPY . .
 
-# Открытие порта 3000 для внешнего доступа
-EXPOSE 3000
-
 # Команда для запуска приложения
-CMD ["node", "scr/core/bot.js"]
+CMD ["sh", "-c", "cd src/core && node -r dotenv/config bot.js"]
