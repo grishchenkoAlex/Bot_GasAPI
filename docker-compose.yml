@@ -1,17 +1,10 @@
 version: '3.8'
 
 services:
-  bot:
+  app:
     build: .
-    volumes:
-      - ./src:/usr/src/app/src
+    ports:
+      - "3000:3000"
     environment:
-      - TELEGRAM_TOKEN=<your_telegram_token>
-    networks:
-      - telegram_net
-
-networks:
-  telegram_net:
-    driver: bridge
-
-    
+      NODE_ENV: production
+    restart: unless-stopped
