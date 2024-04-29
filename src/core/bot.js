@@ -6,159 +6,131 @@ const { generateMaxPriorityFeeChart, generateOtherFeesChart } = require('../char
 const { fetchBaseFeePercentile } = require('../api/GetBaseFeePercentile');
 const { fetchBusyThreshold } = require('../api/GetBusyThreshold');
 const { fetchSuggestedGasFees } = require('../api/GetEIP-1559GasPrices');
-const { compileSolidity } = require('../solidity/compiler');
-const { testContract } = require('../solidity/tester');
-const fs = require('fs');
 
 // Токен, который вы получили у BotFather
 const token = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
-const contractFilePath = require.resolve('./tempContract.sol');
-
-let awaitingContractEvaluation = false;
 
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const options = {
-        reply_markup: {
-            keyboard: [
-                ['Оценить свой смарт контракт'],
-                ['Данные Gas API']
-            ],
-            resize_keyboard: true
-        }
+        reply_markup: JSON.stringify({
+            inline_keyboard: [
+                [{ text: 'Оценить свой смарт контракт', callback_data: 'evaluate' }],
+                [{ text: 'Данные Gas API', callback_data: 'gas_data' }]
+            ]
+        })
     };
-    bot.sendMessage(chatId, 'Выберите опцию', options);
+    bot.sendMessage(chatId, 'Выберите опцию:', options);
 });
 
-bot.onText(/Оценить свой смарт контракт/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Пожалуйста, отправьте исходный код вашего смарт-контракта для оценки.');
-    awaitingContractEvaluation = true;
-});
-
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-
-    // Исключаем обработку команд из обработчика смарт-контрактов
-    if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command')) {
-        return; // Пропускаем обработку, если это команда
+bot.on('callback_query', async (callbackQuery) => {
+    const chatId = callbackQuery.message.chat.id;
+    const data = callbackQuery.data;
+    switch (data) {
+        case 'evaluate':
+            bot.sendMessage(chatId, 'Данный функционал находится в доработке');
+            break;
+        case 'gas_data':
+            showGasOptions(chatId);
+            break;
+        case 'fetch_base_fee_chart':
+            await fetchAndSendBaseFeeHistory(chatId);
+            break;
+        case 'fetch_percentile':
+            await fetchAndSendBaseFeePercentile(chatId);
+            break;
+        case 'fetch_busy_threshold':
+            await fetchAndSendBusyThreshold(chatId);
+            break;
+        case 'fetch_gas_prices':
+            await fetchAndSendGasPrices(chatId);
+            break;
+        case 'main_menu':
+            sendMainMenu(chatId);
+            break;
+        default:
+            bot.sendMessage(chatId, 'Неизвестная команда, пожалуйста, выберите одну из доступных опций.');
     }
+});
 
-    // Проверяем, ожидается ли оценка смарт-контракта
-    if (awaitingContractEvaluation) {
-        const result = compileSolidity(msg.text, contractFilePath);
-        if (result.errors) {
-            bot.sendMessage(chatId, 'Ошибка компиляции:\n' + result.errors.join('\n'));
-        } else {
-            fs.writeFile(contractFilePath, msg.text, async (err) => {
-                if (err) {
-                    console.error('Ошибка записи файла контракта:', err);
-                    return;
-                }
-                console.log('Код контракта успешно записан в файл:', contractFilePath);
 
-                bot.sendMessage(chatId, 'Компиляция прошла успешно. Идет подготовка к тестированию...');
-                try {
-                    const testResults = await testContract(result.compiledCode);
-                    bot.sendMessage(chatId, formatResults(testResults));
-                } catch (error) {
-                    console.error('Ошибка при тестировании контракта:', error);
-                }
-            });
+async function fetchAndSendBaseFeeHistory(chatId) {
+    try {
+        const baseFeeHistory = await fetchBaseFeeHistory(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
+        if (!baseFeeHistory.length) {
+            console.log("No data received from API");
+            return;
         }
-        awaitingContractEvaluation = false; // После оценки контракта сбрасываем флаг ожидания
+        const limitedHistory = baseFeeHistory.slice(-100); // Получение последних 500 значений
+        const numbers = limitedHistory.map(value => parseFloat(value));
+        const chartBuffer = await generateBaseFeeChart(numbers);
+        await bot.sendPhoto(chatId, chartBuffer);
+        // Отправка последнего значения текстом
+        const lastValue = numbers[numbers.length - 1];
+        bot.sendMessage(chatId, `Last base fee value: ${lastValue}`);
+    } catch (error) {
+        console.error("Failed to process or send chart:", error);
+        bot.sendMessage(chatId, "Failed to generate or send chart.");
     }
-});
-
-
-function formatResults(results) {
-    return results.map(result => result.error ?
-        `${result.transaction}: Недоступно, Ошибка - ${result.error}` :
-        `${result.transaction}: Газ - ${result.gasUsed}, Время - ${result.time}ms`
-    ).join('\n');
 }
 
-
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-
-    if (msg.text === 'Получить график базовых комиссий') {
-        try {
-            const baseFeeHistory = await fetchBaseFeeHistory(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
-            if (!baseFeeHistory.length) {
-                console.log("No data received from API");
-                return;
-            }
-            const limitedHistory = baseFeeHistory.slice(-100); // Получение последних 500 значений
-            const numbers = limitedHistory.map(value => parseFloat(value));
-            const chartBuffer = await generateBaseFeeChart(numbers);
-            await bot.sendPhoto(chatId, chartBuffer);
-            // Отправка последнего значения текстом
-            const lastValue = numbers[numbers.length - 1];
-            bot.sendMessage(chatId, `Last base fee value: ${lastValue}`);
-        } catch (error) {
-            console.error("Failed to process or send chart:", error);
-            bot.sendMessage(chatId, "Failed to generate or send chart.");
-        }
+async function fetchAndSendBaseFeePercentile(chatId) {
+    const percentileData = await fetchBaseFeePercentile(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
+    if (percentileData) {
+        const responseText = `${percentileData.baseFeePercentile} GWEI\n\nЭто означает, что 50 % исторических базовых сборов меньше или равны ${percentileData.baseFeePercentile} GWEI`;
+        bot.sendMessage(chatId, responseText);
+    } else {
+        bot.sendMessage(chatId, "Не удалось получить данные.");
     }
-    if (msg.text === 'Получите процентиль базовой комиссии') {
-        const percentileData = await fetchBaseFeePercentile(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
-        if (percentileData) {
-            const responseText = `${percentileData.baseFeePercentile} GWEI\n\nЭто означает, что 50 % исторических базовых сборов меньше или равны ${percentileData.baseFeePercentile} GWEI`;
-            bot.sendMessage(chatId, responseText);
-        } else {
-            bot.sendMessage(chatId, "Не удалось получить данные.");
+}
+
+async function fetchAndSendBusyThreshold(chatId) {
+    try {
+        const baseFeeHistory = await fetchBaseFeeHistory(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
+        if (!baseFeeHistory.length) {
+            console.log("No data received from API");
+            return;
         }
-    }
-    if (msg.text === 'Получите порог занятости') {
-        try {
-            const baseFeeHistory = await fetchBaseFeeHistory(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
-            if (!baseFeeHistory.length) {
-                console.log("No data received from API");
-                return;
-            }
-            const lastValue = parseFloat(baseFeeHistory.slice(-1)[0]); // Получение последнего значения
-            const busyThreshold = await fetchBusyThreshold(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
+        const lastValue = parseFloat(baseFeeHistory.slice(-1)[0]); // Получение последнего значения
+        const busyThreshold = await fetchBusyThreshold(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
 
-            if (busyThreshold) {
-                let comparisonText = "";
-                if (lastValue > busyThreshold) {
-                    comparisonText = `Текущая базовая комиссия ${lastValue} GWEI больше ${busyThreshold}, это говорит о том, что сейчас сеть более загружена, чем обычно, вероятно, из-за большого объема транзакций.`;
-                } else {
-                    comparisonText = `Текущая базовая комиссия ${lastValue} GWEI меньше ${busyThreshold}, это говорит о том, что сейчас сеть менее загружена, чем обычно, вероятно, из-за маленького объема транзакций.`;
-                }
-
-                const responseText = `${busyThreshold} GWEI\n\nЭто означает, что 90 % исторических базовых сборов в сети были ниже ${busyThreshold} GWEI.\n\n${comparisonText}`;
-                bot.sendMessage(chatId, responseText);
+        if (busyThreshold) {
+            let comparisonText = "";
+            if (lastValue > busyThreshold) {
+                comparisonText = `Текущая базовая комиссия ${lastValue} GWEI больше ${busyThreshold}, это говорит о том, что сейчас сеть более загружена, чем обычно, вероятно, из-за большого объема транзакций.`;
             } else {
-                bot.sendMessage(chatId, "Не удалось получить данные о пороге занятости.");
+                comparisonText = `Текущая базовая комиссия ${lastValue} GWEI меньше ${busyThreshold}, это говорит о том, что сейчас сеть менее загружена, чем обычно, вероятно, из-за маленького объема транзакций.`;
             }
-        } catch (error) {
-            console.error("Failed to process or send threshold data:", error);
-            bot.sendMessage(chatId, "Failed to generate or send threshold data.");
-        }
-    }
 
-    if (msg.text === 'Получить цены на газ EIP-1559') {
-        const gasFeesData = await fetchSuggestedGasFees(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
-        if (gasFeesData) {
-            // Отправляем гистограмму для Max Priority Fee
-            const priorityFeeChart = await generateMaxPriorityFeeChart(gasFeesData);
-            await bot.sendPhoto(chatId, priorityFeeChart);
-
-            // Отправляем гистограмму для остальных платежей
-            const otherFeesChart = await generateOtherFeesChart(gasFeesData);
-            await bot.sendPhoto(chatId, otherFeesChart);
-
-            // Затем отправляем текстовые данные
-            const responseText = formatGasFeesData(gasFeesData);
+            const responseText = `${busyThreshold} GWEI\n\nЭто означает, что 90 % исторических базовых сборов в сети были ниже ${busyThreshold} GWEI.\n\n${comparisonText}`;
             bot.sendMessage(chatId, responseText);
         } else {
-            bot.sendMessage(chatId, "Не удалось получить данные о платах за газ.");
+            bot.sendMessage(chatId, "Не удалось получить данные о пороге занятости.");
         }
+    } catch (error) {
+        console.error("Failed to process or send threshold data:", error);
+        bot.sendMessage(chatId, "Failed to generate or send threshold data.");
     }
+}
 
+async function fetchAndSendGasPrices(chatId) {
+    const gasFeesData = await fetchSuggestedGasFees(process.env.INFURA_API_KEY, process.env.INFURA_API_KEY_SECRET);
+    if (gasFeesData) {
+        // Отправляем гистограмму для Max Priority Fee
+        const priorityFeeChart = await generateMaxPriorityFeeChart(gasFeesData);
+        await bot.sendPhoto(chatId, priorityFeeChart);
+
+        // Отправляем гистограмму для остальных платежей
+        const otherFeesChart = await generateOtherFeesChart(gasFeesData);
+        await bot.sendPhoto(chatId, otherFeesChart);
+
+        // Затем отправляем текстовые данные
+        const responseText = formatGasFeesData(gasFeesData);
+        bot.sendMessage(chatId, responseText);
+    } else {
+        bot.sendMessage(chatId, "Не удалось получить данные о платах за газ.");
+    }
 
     function formatGasFeesData(data) {
         const levels = ['low', 'medium', 'high'];
@@ -181,34 +153,38 @@ bot.on('message', async (msg) => {
 
         return responseText;
     }
-});
+}
+
+
+
+function showGasOptions(chatId) {
+    const options = {
+        reply_markup: JSON.stringify({
+            inline_keyboard: [
+                [{ text: 'Получить график базовых комиссий', callback_data: 'fetch_base_fee_chart' }],
+                [{ text: 'Получите процентиль базовой комиссии', callback_data: 'fetch_percentile' }],
+                [{ text: 'Получите порог занятости', callback_data: 'fetch_busy_threshold' }],
+                [{ text: 'Получить цены на газ EIP-1559', callback_data: 'fetch_gas_prices' }],
+                [{ text: 'В главное меню', callback_data: 'main_menu' }]
+            ]
+        })
+    };
+    bot.sendMessage(chatId, 'Выберите тип данных Gas API:', options);
+}
 
 function sendMainMenu(chatId) {
-    bot.sendMessage(chatId, 'Выберите опцию', {
-        reply_markup: {
-            keyboard: [
-                [{ text: 'Оценить свой смарт контракт' }],
-                [{ text: 'Данные Gas API' }]
-            ],
-            resize_keyboard: true
-        }
-    });
+    const options = {
+        reply_markup: JSON.stringify({
+            inline_keyboard: [
+                [{ text: 'Оценить свой смарт контракт', callback_data: 'evaluate' }],
+                [{ text: 'Данные Gas API', callback_data: 'gas_data' }]
+            ]
+        })
+    };
+    bot.sendMessage(chatId, 'Возврат в главное меню:', options);
 }
 
-function sendGasDataOptions(chatId) {
-    bot.sendMessage(chatId, 'Выберите тип данных:', {
-        reply_markup: {
-            keyboard: [
-                [{ text: 'Получить график базовых комиссий' }],
-                [{ text: 'Получите процентиль базовой комиссии' }],
-                [{ text: 'Получите порог занятости' }],
-                [{ text: 'Получить цены на газ EIP-1559' }],
-                [{ text: 'В главное меню' }]
-            ],
-            resize_keyboard: true
-        }
-    });
-}
-
-module.exports = bot;
-// Дополнительные обработчики для других кнопок и ввода смарт-контрактов
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'Чтобы начать, используйте команду /start.');
+});
