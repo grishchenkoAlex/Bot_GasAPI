@@ -37,7 +37,7 @@ jobs:
     - name: Deploy to production
       run: |
         echo "Deploy commands go here"
-        # Замените следующую строку на вашу команду запуска бота
+        npm install
         npm start
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
