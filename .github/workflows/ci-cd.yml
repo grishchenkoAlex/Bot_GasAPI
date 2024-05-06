@@ -35,7 +35,10 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Deploy to production
-      run: echo "Deploy commands go here"
+      run: |
+        echo "Deploy commands go here"
+        # Замените следующую строку на вашу команду запуска бота
+        npm start
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
