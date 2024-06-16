@@ -18,15 +18,15 @@ jobs:
     - name: Install dependencies
       run: npm install
     - name: Run lint
-      run: npx eslint src/
+      run: npm run lint
     - name: Run tests
-      run: npm test
+      run: npm run test
     - name: Build Docker image
-      run: docker build -t your-username/your-repo:${{ github.sha }} .
+      run: docker build -t alexgrishchenko/gasapi_bot:latest .
     - name: Push Docker image to registry
       run: |
         echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-        docker push your-username/your-repo:${{ github.sha }}
+        docker push alexgrishchenko/gasapi_bot:latest
 
   deploy:
     runs-on: ubuntu-latest
@@ -35,10 +35,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Deploy to production
-      run: echo "Deploy commands go here"
+      run: |
+        echo "Deploy commands go here"
+        npm install
+        npm start
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         INFURA_API_KEY: ${{ secrets.INFURA_API_KEY }}
         INFURA_API_KEY_SECRET: ${{ secrets.INFURA_API_KEY_SECRET }}
         DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
         DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
