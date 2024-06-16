@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-=======
 
-// truffle-config.js
->>>>>>> 3baae62e600c127962460252bea7200d2bbacd47
 module.exports = {
   networks: {
     development: {
