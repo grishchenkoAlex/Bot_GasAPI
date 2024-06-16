@@ -18,3 +18,4 @@ format:
 # Сочетание тестирования, линтинга и форматирования
 all: test lint format
 	@echo "All tasks done!"
+# 

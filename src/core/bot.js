@@ -9,10 +9,15 @@ const {
 const { fetchBaseFeePercentile } = require('../api/GetBaseFeePercentile')
 const { fetchBusyThreshold } = require('../api/GetBusyThreshold')
 const { fetchSuggestedGasFees } = require('../api/GetEIP-1559GasPrices')
+const { compileSolidity } = require('../solidity/compiler');
+const { testContract } = require('../solidity/tester');
+const fs = require('fs');
+const contractFilePath = require.resolve('./tempContract.sol');
 
 // Токен, который вы получили у BotFather
 const token = process.env.TELEGRAM_TOKEN
 const bot = new TelegramBot(token, { polling: true })
+let awaitingContractEvaluation = false;
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id
@@ -32,8 +37,9 @@ bot.on('callback_query', async (callbackQuery) => {
   const data = callbackQuery.data
   switch (data) {
     case 'evaluate':
-      bot.sendMessage(chatId, 'Данный функционал находится в доработке')
-      break
+      bot.sendMessage(chatId, 'Пожалуйста, отправьте исходный код вашего смарт-контракта для оценки.');
+      awaitingContractEvaluation = true;
+      break;
     case 'gas_data':
       showGasOptions(chatId)
       break
@@ -59,6 +65,44 @@ bot.on('callback_query', async (callbackQuery) => {
       )
   }
 })
+
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (msg.entities && msg.entities.some(entity => entity.type === 'bot_command')) {
+    return; // Skip command messages for contract evaluation
+  }
+
+  if (awaitingContractEvaluation) {
+    awaitingContractEvaluation = false; // Reset the flag as soon as message received
+    try {
+      const result = await compileSolidity(msg.text, 'tempContract.sol');
+      if (result.errors) {
+        bot.sendMessage(chatId, 'Ошибка компиляции:\n' + result.errors.join('\n'));
+        console.error('Ошибка компиляции:', result.errors.join('\n'));
+        return;
+      }
+      bot.sendMessage(chatId, 'Компиляция успешна. Подготовка к тестированию...');
+
+      // Получение данных о комиссиях за газ
+      const gasFeesData = await fetchSuggestedGasFees(process.env.INFURA_API_KEY,
+        process.env.INFURA_API_KEY_SECRET,);
+      if (!gasFeesData) {
+        bot.sendMessage(chatId, 'Не удалось получить данные о комиссиях за газ.');
+        return;
+      }
+
+      // Тестирование контракта
+      const testResult = await testContract(gasFeesData); // Передаем данные о комиссиях
+
+      bot.sendMessage(chatId, 'Тестирование успешно завершено.');
+    } catch (error) {
+      bot.sendMessage(chatId, `Ошибка при компиляции или тестировании: ${error.message}`);
+      console.error(`Ошибка при компиляции или тестировании: ${error.message}`);
+    }
+  }
+});
+
 
 async function fetchAndSendBaseFeeHistory(chatId) {
   try {
